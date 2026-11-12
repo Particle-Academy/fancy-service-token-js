@@ -1,0 +1,69 @@
+{
+    "name": "@particle-academy/fancy-service-token",
+    "version": "0.1.0",
+    "description": "Verify Fancy service tokens in a Node sidecar: the verifier mirror of the PHP signer plus a connect-style middleware that refuses before the body is read, with a named reason. node:crypto only, zero runtime dependencies.",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Particle-Academy/fancy-service-token-js.git"
+    },
+    "homepage": "https://github.com/Particle-Academy/fancy-service-token-js#readme",
+    "bugs": "https://github.com/Particle-Academy/fancy-service-token-js/issues",
+    "type": "module",
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": {
+                "types": "./dist/index.d.ts",
+                "default": "./dist/index.js"
+            },
+            "require": {
+                "types": "./dist/index.d.cts",
+                "default": "./dist/index.cjs"
+            }
+        }
+    },
+    "files": [
+        "dist",
+        "conformance",
+        "README.md",
+        "CHANGELOG.md"
+    ],
+    "sideEffects": false,
+    "scripts": {
+        "build": "tsup",
+        "dev": "tsup --watch",
+        "lint": "tsc --noEmit",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "clean": "rm -rf dist",
+        "prepublishOnly": "tsup"
+    },
+    "keywords": [
+        "service-token",
+        "hmac",
+        "sidecar",
+        "authentication",
+        "middleware",
+        "fancy",
+        "particle-academy"
+    ],
+    "devDependencies": {
+        "@types/node": "^22",
+        "tsup": "^8.5.0",
+        "typescript": "^5.8.0",
+        "vitest": "^4.1.12"
+    },
+    "engines": {
+        "node": ">=22"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "license": "MIT",
+    "overrides": {
+        "esbuild": "^0.28.1",
+        "source-map-js": "^1.2.2"
+    }
+}
