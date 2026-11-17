@@ -1,42 +1,67 @@
-# AGENTS.md — fancy-service-token-js
+# Using @particle-academy/fancy-service-token — guide for agents
 
-The Node leg of the Fancy service-token set: a verifier for `fst1` tokens and a
-connect-style middleware. `CLAUDE.md` points here. Process rules live in the
-envelope's `RULES.md`, not here.
+How an agent installs and uses this package in a consumer app. What the package
+is, is in [README.md](./README.md). Notes for working ON this repo's code are in
+[CONTRIBUTING.md](./CONTRIBUTING.md).
 
-Siblings, held to the same fixture file: `fancy-service-token` (PHP signer and
-verifier) and `fancy-service-token-py` (Python verifier, and where the fixtures
-are generated).
+## Install
 
-## Where things are
+```bash
+npm install @particle-academy/fancy-service-token
+```
 
-- `src/verifier.ts`: `Verifier`, `MemoryReplayStore`, `REASONS`, the types.
-  Follows the README's numbered check order step by step.
-- `src/middleware.ts`: `serviceTokenMiddleware`, `currentRequestId`.
-- `conformance/service-token-v1.json`: shared fixtures, a byte copy from
-  `fancy-service-token-py`. Never edit it here; regenerate there and copy.
-- `tests/sabotage.mjs`: the mutation sweep CI runs.
+- **Node:** `>=22`. Zero runtime dependencies.
+- The signer is the Laravel package `particle-academy/fancy-service-token`; this
+  package only verifies. A Python verifier is `fancy-service-token` on PyPI.
 
-## Invariants a change must keep
+## Find it on the Fancy MCP server
 
-- **Zero runtime dependencies**; `node:crypto`, `node:async_hooks` and Buffer
-  only. No JWT library, no cryptography beyond HMAC-SHA256.
-- **Refuse from the headers.** On a refusal the middleware never touches the
-  body stream and never calls `next()`. Duplicate token headers are `malformed`
-  (read through `headersDistinct`).
-- **The check order is the contract**, shared with PHP and Python through the
-  fixtures. A nonce is recorded only after every other check passes.
-- **Constant time:** `timingSafeEqual` on equal-length buffers, and an HMAC is
-  computed even for an unknown key id.
-- **Strict parsing:** canonical unpadded base64url, ASCII only, lengths bounded
-  before parsing, character sets checked per character (the only regex is a
-  bounded single character class).
-- **Nothing secret leaves:** `Claims` holds no token or nonce; log events carry
-  a reason, a verified request id or an error class name, never a message.
-- **Fail closed:** `verify()` never throws; a full replay store refuses.
-- `REASONS` is a fixed public contract across all three legs.
+The catalog server is `https://ui.particle.academy/mcp` (streamable HTTP, no API
+key; MCP id `fancy-ui`). This package is not yet listed there; it appears once
+published. Find it then with `search-backend-packages` (stack `node`).
 
-## Tests
+## API essentials
 
-`npm test` (vitest), `npm run lint` (tsc), `npm run build`, then
-`node tests/sabotage.mjs`.
+```ts
+import { Verifier, serviceTokenMiddleware, currentRequestId } from "@particle-academy/fancy-service-token";
+
+const verifier = new Verifier({
+  keys: [{ kid: "k2026b", secret: Buffer.from(process.env.SERVICE_TOKEN_KEY!, "hex") }],
+  audience: "ocr-sidecar",
+  issuer: "laravel-app",
+});
+
+app.use(serviceTokenMiddleware({ verifier, log: (e) => logger[e.level](e) })); // before any body parser
+```
+
+- `Verifier.verify(token, now?)` returns `{ ok: true, claims }` or
+  `{ ok: false, reason }` and never throws.
+- `serviceTokenMiddleware({ verifier, header, exemptPaths, log })` is
+  connect-style `(req, res, next)`: Express, Connect, Polka and bare `node:http`
+  all take it. Default header `x-fancy-service-token`.
+- The verified request id is on `req.serviceToken.requestId`, and
+  `currentRequestId()` returns it anywhere inside `next()`.
+- `REASONS` is the fixed set of refusal reasons: `missing`, `malformed`,
+  `bad_signature`, `expired`, `not_yet_valid`, `wrong_audience`, `replayed`.
+  A refusal is `401` with `{"error": "service_token_refused", "reason": "..."}`.
+- Options and defaults (`clockSkew`, `maxLifetime`, `maxTokenBytes`,
+  `requireNonce`, `minKeyBytes`, `replayStore`, `clock`) are in the README's
+  Configuration table.
+
+## Traps
+
+- **Mount the middleware BEFORE any body parser.** It decides from headers alone;
+  a parser mounted first reads the body of a request that should be refused.
+- **Secrets must be at least `minKeyBytes` (32) bytes** and passed as bytes
+  (`Uint8Array` / `Buffer`), not a string.
+- **`MemoryReplayStore` is per process.** With several processes, supply a
+  shared store (anything with `add(key, expiresAt, now): boolean`). A full store
+  refuses (`replayed`); `replayStore: null` turns replay checks off.
+- **Key rotation:** sign with the new key in Laravel; here hold both and give
+  the old one `acceptUntil` (unix seconds, inclusive).
+- **Stream callbacks** such as `req.on("data")` run outside the request's async
+  context; read `req.serviceToken` there, not `currentRequestId()`.
+- **`exemptPaths` are exact path matches** (query string ignored), meant for a
+  health check.
+- **A duplicated token header is `malformed`.**
+- **Pre-1.0:** breaking changes land in MINOR releases.
