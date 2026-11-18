@@ -10,17 +10,9 @@ upgrading.
 
 ## [Unreleased]
 
-### Changed
+## [0.1.0] - 2026-11-18
 
-- **CI: the lab-certificate gate verifies against the lab's rotated key list.**
-  The lab's first signing key is retired: certificates it already issued still
-  verify, and nothing new it signs ever can. Consumers do nothing.
-
-- **Docs:** `AGENTS.md` is now the guide to using this package (install, how to find it on the Fancy MCP catalog server once it is listed, API essentials, traps), and it ships in the package. The contributor notes it held moved to `CONTRIBUTING.md`, and `CLAUDE.md` is now a symlink to it. The README points to the MCP server and to `AGENTS.md`. No code changed; nothing to do.
-
-## [0.1.0] - 2026-11-12
-
-First release (CC-fancy-0030). Not yet published.
+First release (CC-fancy-0030).
 
 ### Added
 
@@ -44,3 +36,11 @@ First release (CC-fancy-0030). Not yet published.
 - **Shared conformance fixtures** (`conformance/service-token-v1.json`), the
   same bytes as the PHP and Python legs, pinned by SHA-256; and a sabotage sweep
   in CI.
+
+### Changed
+
+- **CI: the lab-certificate gate verifies against the lab's rotated key list.**
+  The lab's first signing key is retired: certificates it already issued still
+  verify, and nothing new it signs ever can. Consumers do nothing.
+
+- **Docs:** `AGENTS.md` is now the guide to using this package (install, how to find it on the Fancy MCP catalog server once it is listed, API essentials, traps), and it ships in the package. The contributor notes it held moved to `CONTRIBUTING.md`, and `CLAUDE.md` is now a symlink to it. The README points to the MCP server and to `AGENTS.md`. No code changed; nothing to do.
