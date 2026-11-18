@@ -10,6 +10,29 @@ upgrading.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-18
+
+### Changed
+
+- **BREAKING: the 401 refusal body is now the Fancy error envelope**
+  (`fancy-http-errors` `envelope.schema.json`), exactly
+  `{"error": "service_token_refused", "message": "<sentence>", "requestId": "<id>"}`.
+  **The body no longer has `reason`; read it from `WWW-Authenticate`**
+  (`FancyServiceToken error="<reason>"`, unchanged since 0.1.0). If you only
+  checked the 401 status, do nothing.
+
+### Added
+
+- `message`: one fixed English sentence per reason, exported as
+  `REFUSAL_MESSAGES`. Identical to the Python leg; both are pinned to
+  `conformance/refusal-messages.json` (shipped in the package).
+- `requestId`: the incoming `x-request-id` when it matches
+  `^[A-Za-z0-9._:-]{1,128}$` (sent once), else `crypto.randomUUID()`; echoed as
+  an `x-request-id` response header. The `requestIdHeader` option changes the
+  header name.
+- The suite validates every refusal body against a byte copy of the envelope
+  schema with a small first-party validator (no new dependency).
+
 ## [0.1.0] - 2026-11-18
 
 First release (CC-fancy-0030).

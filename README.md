@@ -61,21 +61,37 @@ throws: it returns `{ ok: true, claims }` or `{ ok: false, reason }`.
 
 ## Refusals
 
-`401`, `Cache-Control: no-store`, `WWW-Authenticate: FancyServiceToken error="<reason>"`:
+`401`, `Cache-Control: no-store`, `WWW-Authenticate: FancyServiceToken error="<reason>"`
+and an `x-request-id` header. The body is the Fancy error envelope (the `fancy-http-errors`
+`envelope.schema.json`): exactly `error`, `message` and `requestId`, nothing
+else. **The reason is in the `WWW-Authenticate` header, never in the body**;
+`message` is one fixed English sentence per reason, identical in the Python and
+Node legs (`conformance/refusal-messages.json`). `requestId` is the incoming
+`x-request-id` when it matches `^[A-Za-z0-9._:-]{1,128}$`, else a fresh UUID v4,
+and is echoed in an `x-request-id` response header.
 
-```json
-{"error": "service_token_refused", "reason": "expired"}
+```http
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: FancyServiceToken error="expired"
+x-request-id: 3f6c0a52-6f1e-4b43-9d55-1f0d2b1f7e10
+Cache-Control: no-store
+Content-Type: application/json
+
+{"error":"service_token_refused","message":"The service token has expired.","requestId":"3f6c0a52-6f1e-4b43-9d55-1f0d2b1f7e10"}
 ```
 
-| reason | means |
-|---|---|
-| `missing` | no token header, or an empty one |
-| `malformed` | not a well-formed `fst1` token, longer than `maxTokenBytes`, a lifetime above `maxLifetime`, no nonce while `requireNonce` is on, or the header sent twice |
-| `bad_signature` | HMAC mismatch, unknown key id, a previous key past its grace window, or an issuer other than the configured one |
-| `expired` | `now >= exp + clockSkew` |
-| `not_yet_valid` | `now + clockSkew < iat` |
-| `wrong_audience` | signed correctly, for a different sidecar |
-| `replayed` | the nonce was already accepted (or the replay store is full: it fails closed) |
+The request-id header name is the `requestIdHeader` option (default
+`x-request-id`). The sentences are exported as `REFUSAL_MESSAGES`.
+
+| reason | means | `message` |
+|---|---|---|
+| `missing` | no token header, or an empty one | This request carries no service token. |
+| `malformed` | not a well-formed `fst1` token, longer than `maxTokenBytes`, a lifetime above `maxLifetime`, no nonce while `requireNonce` is on, or the header sent twice | The service token could not be read. |
+| `bad_signature` | HMAC mismatch, unknown key id, a previous key past its grace window, or an issuer other than the configured one | The service token signature does not match a known key. |
+| `expired` | `now >= exp + clockSkew` | The service token has expired. |
+| `not_yet_valid` | `now + clockSkew < iat` | The service token is not valid yet. |
+| `wrong_audience` | signed correctly, for a different sidecar | The service token was issued for a different service. |
+| `replayed` | the nonce was already accepted (or the replay store is full: it fails closed) | The service token has already been used. |
 
 ## Request id
 

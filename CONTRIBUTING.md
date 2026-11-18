@@ -40,6 +40,12 @@ are generated).
   a reason, a verified request id or an error class name, never a message.
 - **Fail closed:** `verify()` never throws; a full replay store refuses.
 - `REASONS` is a fixed public contract across all three legs.
+- **A refusal body is the Fancy error envelope and nothing else**:
+  `{error, message, requestId}`, validated in the suite against a byte copy of
+  `fancy-http-errors/envelope.schema.json` (`tests/fixtures/`). The reason goes
+  in `WWW-Authenticate`. `REFUSAL_MESSAGES` must equal
+  `conformance/refusal-messages.json`, which is byte-identical (SHA-256 pinned)
+  in the Python leg; change a sentence in both, never one.
 
 ## Tests
 

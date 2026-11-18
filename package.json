@@ -1,6 +1,6 @@
 {
     "name": "@particle-academy/fancy-service-token",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Verify Fancy service tokens in a Node sidecar: the verifier mirror of the PHP signer plus a connect-style middleware that refuses before the body is read, with a named reason. node:crypto only, zero runtime dependencies.",
     "repository": {
         "type": "git",

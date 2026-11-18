@@ -36,14 +36,19 @@ app.use(serviceTokenMiddleware({ verifier, log: (e) => logger[e.level](e) })); /
 
 - `Verifier.verify(token, now?)` returns `{ ok: true, claims }` or
   `{ ok: false, reason }` and never throws.
-- `serviceTokenMiddleware({ verifier, header, exemptPaths, log })` is
+- `serviceTokenMiddleware({ verifier, header, requestIdHeader, exemptPaths, log })` is
   connect-style `(req, res, next)`: Express, Connect, Polka and bare `node:http`
   all take it. Default header `x-fancy-service-token`.
 - The verified request id is on `req.serviceToken.requestId`, and
   `currentRequestId()` returns it anywhere inside `next()`.
 - `REASONS` is the fixed set of refusal reasons: `missing`, `malformed`,
   `bad_signature`, `expired`, `not_yet_valid`, `wrong_audience`, `replayed`.
-  A refusal is `401` with `{"error": "service_token_refused", "reason": "..."}`.
+  A refusal is `401` with the Fancy error envelope
+  `{"error": "service_token_refused", "message": "<fixed sentence>", "requestId": "<id>"}`
+  and nothing else. **Read the reason from the header**,
+  `WWW-Authenticate: FancyServiceToken error="<reason>"`, never the body. The
+  request id is the incoming `x-request-id` when safe, else a UUID v4, and is
+  echoed as `x-request-id`. Sentences: `REFUSAL_MESSAGES`.
 - Options and defaults (`clockSkew`, `maxLifetime`, `maxTokenBytes`,
   `requireNonce`, `minKeyBytes`, `replayStore`, `clock`) are in the README's
   Configuration table.

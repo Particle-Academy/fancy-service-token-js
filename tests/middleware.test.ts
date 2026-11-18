@@ -1,10 +1,14 @@
 import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
+import { readFileSync } from "node:fs";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   MemoryReplayStore,
+  REASONS,
+  REFUSAL_MESSAGES,
   Verifier,
   currentRequestId,
   serviceTokenMiddleware,
@@ -12,6 +16,18 @@ import {
   type ServiceTokenRequest,
 } from "../src/index";
 import { NOW, SECRET, VALID, caseToken } from "./fixtures";
+import { SCHEMA_SHA256, schemaBytes, sha256, validate } from "./schema";
+
+const MESSAGES_PATH = new URL("../conformance/refusal-messages.json", import.meta.url);
+// Pinned in the Python and Node legs: the refusal sentences are identical in
+// both by test result, not by care.
+const MESSAGES_SHA256 = "80a951939bd9fcca2e555bbdd337a60481966a0ec3adabed573c46c735e231eb";
+const MESSAGES = JSON.parse(readFileSync(MESSAGES_PATH, "utf8")) as {
+  status: number;
+  error: string;
+  messages: Record<string, string>;
+};
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const WRONG_AUDIENCE = caseToken("wrong_audience");
 const TAMPERED = caseToken("tampered_signature");
@@ -92,7 +108,13 @@ describe("serviceTokenMiddleware: refusal never touches the handler or the body"
       });
       expect(nextCalls).toBe(0);
       expect(out.status).toBe(401);
-      expect(JSON.parse(out.body)).toEqual({ error: "service_token_refused", reason });
+      const body = JSON.parse(out.body);
+      expect(validate(body)).toEqual([]);
+      expect(Object.keys(body).sort()).toEqual(["error", "message", "requestId"]);
+      expect(body.error).toBe("service_token_refused");
+      expect(body.message).toBe(MESSAGES.messages[reason]);
+      expect(body.requestId).toMatch(UUID_V4);
+      expect(out.headers["x-request-id"]).toBe(body.requestId);
       expect(out.headers["cache-control"]).toBe("no-store");
       expect(out.headers["www-authenticate"]).toBe(`FancyServiceToken error="${reason}"`);
       expect(out.headers["connection"]).toBe("close");
@@ -111,7 +133,8 @@ describe("serviceTokenMiddleware: refusal never touches the handler or the body"
       nextCalls++;
     });
     expect(nextCalls).toBe(1);
-    expect(JSON.parse(out.body).reason).toBe("replayed");
+    expect(out.headers["www-authenticate"]).toBe('FancyServiceToken error="replayed"');
+    expect(JSON.parse(out.body).message).toBe(MESSAGES.messages.replayed);
   });
 
   it("fails closed, without exception text, when the verifier throws", () => {
@@ -126,11 +149,77 @@ describe("serviceTokenMiddleware: refusal never touches the handler or the body"
       nextCalls++;
     });
     expect(nextCalls).toBe(0);
-    expect(JSON.parse(out.body)).toEqual({ error: "service_token_refused", reason: "malformed" });
+    const body = JSON.parse(out.body);
+    expect(validate(body)).toEqual([]);
+    expect(body.message).toBe(MESSAGES.messages.malformed);
+    expect(out.headers["www-authenticate"]).toBe('FancyServiceToken error="malformed"');
+    expect(out.body).not.toContain("secret detail");
     const logged = JSON.stringify(events);
     expect(logged).not.toContain("secret detail");
     expect(logged).not.toContain(SECRET.toString("hex"));
     expect(logged).toContain("Error");
+  });
+});
+
+describe("serviceTokenMiddleware: the refusal is the Fancy error envelope", () => {
+  const refuse = (headers: Record<string, string | string[]>, options: { requestIdHeader?: string } = {}): Captured => {
+    const { res, out } = fakeResponse();
+    serviceTokenMiddleware({ verifier: makeVerifier(), ...options })(trapRequest(headers), res, () => undefined);
+    return out;
+  };
+
+  it("validates against the copied schema, byte for byte", () => {
+    expect(sha256(schemaBytes())).toBe(SCHEMA_SHA256);
+  });
+
+  it("the validator rejects the 0.1.0 body, so a pass above means something", () => {
+    expect(validate({ error: "service_token_refused", reason: "expired" })).not.toEqual([]);
+    expect(validate({ error: "service_token_refused", message: "x", requestId: "r", reason: "expired" })).not.toEqual([]);
+    expect(validate({ error: "service_token_refused", message: "x", requestId: "r" })).toEqual([]);
+  });
+
+  it("carries one fixed sentence per reason, identical to the shared fixture", () => {
+    expect(sha256(readFileSync(MESSAGES_PATH))).toBe(MESSAGES_SHA256);
+    expect(REFUSAL_MESSAGES).toEqual(MESSAGES.messages);
+    expect(Object.keys(MESSAGES.messages).sort()).toEqual([...REASONS].sort());
+    expect(MESSAGES.status).toBe(401);
+    expect(MESSAGES.error).toBe("service_token_refused");
+  });
+
+  it("echoes a well-formed incoming x-request-id in the body and the header", () => {
+    const out = refuse({ "x-request-id": "req-01HZX3K8Q2.a:b_c" });
+    expect(JSON.parse(out.body).requestId).toBe("req-01HZX3K8Q2.a:b_c");
+    expect(out.headers["x-request-id"]).toBe("req-01HZX3K8Q2.a:b_c");
+  });
+
+  for (const bad of ["has space", "x".repeat(129), "semi;colon", "", "caf\u00e9", "line\nbreak"]) {
+    it(`replaces an unsafe incoming request id (${JSON.stringify(bad).slice(0, 20)})`, () => {
+      const out = refuse({ "x-request-id": bad });
+      const body = JSON.parse(out.body);
+      expect(validate(body)).toEqual([]);
+      expect(body.requestId).toMatch(UUID_V4);
+      expect(out.headers["x-request-id"]).toBe(body.requestId);
+    });
+  }
+
+  it("replaces a duplicated incoming request id", () => {
+    const body = JSON.parse(refuse({ "x-request-id": ["a", "b"] }).body);
+    expect(body.requestId).toMatch(UUID_V4);
+  });
+
+  it("generates a fresh id per refusal", () => {
+    expect(JSON.parse(refuse({}).body).requestId).not.toBe(JSON.parse(refuse({}).body).requestId);
+  });
+
+  it("reads the request id from a configurable header", () => {
+    const out = refuse({ "x-correlation-id": "corr-1" }, { requestIdHeader: "X-Correlation-Id" });
+    expect(JSON.parse(out.body).requestId).toBe("corr-1");
+    expect(out.headers["x-correlation-id"]).toBe("corr-1");
+  });
+
+  it("sets content-length to the byte length of the body", () => {
+    const out = refuse({});
+    expect(out.headers["content-length"]).toBe(String(Buffer.byteLength(out.body)));
   });
 });
 
@@ -158,7 +247,7 @@ describe("serviceTokenMiddleware: acceptance", () => {
       nextCalls++;
     });
     expect(nextCalls).toBe(1);
-    expect(JSON.parse(out.body).reason).toBe("missing");
+    expect(out.headers["www-authenticate"]).toBe('FancyServiceToken error="missing"');
   });
 
   it("exempts exact paths only, query string ignored", () => {
@@ -219,14 +308,24 @@ describe("serviceTokenMiddleware over a real node:http server", () => {
     close = () => new Promise<void>((r) => server.close(() => r()));
     const { port } = server.address() as AddressInfo;
 
-    const send = (token: string | undefined, finishBody: boolean): Promise<{ status: number; body: string }> =>
+    const send = (
+      token: string | undefined,
+      finishBody: boolean,
+    ): Promise<{ status: number; body: string; wwwAuthenticate?: string; requestId?: string }> =>
       new Promise((resolve, reject) => {
         const req = httpRequest(
           { host: "127.0.0.1", port, method: "POST", path: "/work", headers: token ? { [HEADER]: token } : {} },
           (res) => {
             let b = "";
             res.on("data", (c: Buffer) => (b += c.toString()));
-            res.on("end", () => resolve({ status: res.statusCode ?? 0, body: b }));
+            res.on("end", () =>
+              resolve({
+                status: res.statusCode ?? 0,
+                body: b,
+                wwwAuthenticate: res.headers["www-authenticate"] as string | undefined,
+                requestId: res.headers["x-request-id"] as string | undefined,
+              }),
+            );
           },
         );
         req.on("error", reject);
@@ -237,7 +336,10 @@ describe("serviceTokenMiddleware over a real node:http server", () => {
 
     const refused = await send(TAMPERED, false);
     expect(refused.status).toBe(401);
-    expect(JSON.parse(refused.body).reason).toBe("bad_signature");
+    expect(refused.wwwAuthenticate).toBe('FancyServiceToken error="bad_signature"');
+    const refusedBody = JSON.parse(refused.body);
+    expect(validate(refusedBody)).toEqual([]);
+    expect(refused.requestId).toBe(refusedBody.requestId);
     expect(seen.handler).toBe(0);
     expect(seen.dataListeners[0]).toBe(0);
     expect(seen.flowing[0]).toBe(null);

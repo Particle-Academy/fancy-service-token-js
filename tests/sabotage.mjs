@@ -25,7 +25,11 @@ const MUTATIONS = [
   ["non-canonical base64 accepted", "verifier.ts", 'if (raw.toString("base64url") !== text) return null;', ""],
   ["middleware never refuses", "middleware.ts", "if (!claims) {", "if (false) {"],
   ["duplicate header tolerated", "middleware.ts", "if (distinct && distinct.length > 1)", "if (false)"],
-  ["exception text leaked", "middleware.ts", 'errorClass: (err as Error)?.constructor?.name ?? "unknown"', "errorClass: String(err)"],
+  ["reason back in the body", "middleware.ts", "message: REFUSAL_MESSAGES[refused], requestId }", "message: REFUSAL_MESSAGES[refused], requestId, reason: refused }"],
+  ["unsafe request id echoed", "middleware.ts", "safeRequestId(incomingId) ? incomingId", "incomingId ? incomingId"],
+  ["request id header not echoed", "middleware.ts", "res.setHeader(requestIdHeader, requestId);", ""],
+  ["sentence drifts", "middleware.ts", "The service token has expired.", "The token has expired."],
+  ["exception text leaked","middleware.ts", 'errorClass: (err as Error)?.constructor?.name ?? "unknown"', "errorClass: String(err)"],
 ];
 
 let survivors = 0;
